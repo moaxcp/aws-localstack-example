@@ -1,29 +1,82 @@
 package kinesis.localstack.example;
 
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.kinesis.producer.KinesisProducer;
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
 import org.junit.Rule;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
+import software.amazon.kinesis.common.ConfigsBuilder;
+import software.amazon.kinesis.common.KinesisClientUtil;
+import software.amazon.kinesis.coordinator.Scheduler;
 
+import static org.awaitility.Awaitility.await;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.CLOUDWATCH;
+import static org.testcontainers.containers.localstack.LocalStackContainer.Service.DYNAMODB;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.KINESIS;
 
 @Testcontainers
 public class KinesisTest {
+    public static final String streamName = "stream-name";
+    public static final String partitionKey = "partition-key";
     DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:0.12.12");
 
     @Container
     public LocalStackContainer localstack = new LocalStackContainer(localstackImage)
-            .withServices(KINESIS);
+            .withServices(KINESIS)
+            .withEnv("KINESIS_INITIALIZE_STREAMS", streamName + ":1");
+
+    public Scheduler scheduler;
+    public TestKinesisRecordService service = new TestKinesisRecordService();
+    public KinesisProducer producer;
+
+    @BeforeEach
+    void setup() {
+        KinesisAsyncClient kinesisClient = KinesisClientUtil.createKinesisAsyncClient(
+                KinesisAsyncClient.builder().endpointOverride(localstack.getEndpointOverride(KINESIS)).region(Region.of(localstack.getRegion()))
+        );
+        DynamoDbAsyncClient dynamoClient = DynamoDbAsyncClient.builder().region(Region.of(localstack.getRegion())).endpointOverride(localstack.getEndpointOverride(DYNAMODB)).build();
+        CloudWatchAsyncClient cloudWatchClient = CloudWatchAsyncClient.builder().region(Region.of(localstack.getRegion())).endpointOverride(localstack.getEndpointOverride(CLOUDWATCH)).build();
+
+        ConfigsBuilder configsBuilder = new ConfigsBuilder(streamName, "KinesisPratTest", kinesisClient, dynamoClient, cloudWatchClient, UUID.randomUUID().toString(), new TestProcessorFactory(service));
+
+        scheduler = new Scheduler(
+                configsBuilder.checkpointConfig(),
+                configsBuilder.coordinatorConfig(),
+                configsBuilder.leaseManagementConfig(),
+                configsBuilder.lifecycleConfig(),
+                configsBuilder.metricsConfig(),
+                configsBuilder.processorConfig(),
+                configsBuilder.retrievalConfig()
+        );
+
+        producer = producer();
+    }
+
+    @AfterEach
+    public void teardown() throws ExecutionException, InterruptedException, TimeoutException {
+        producer.destroy();
+        Future<Boolean> gracefulShutdownFuture = scheduler.startGracefulShutdown();
+        gracefulShutdownFuture.get(20, TimeUnit.SECONDS);
+    }
 
     public KinesisProducer producer() {
         var configuration = new KinesisProducerConfiguration()
@@ -41,7 +94,7 @@ public class KinesisTest {
 
     @Test
     void test() {
-        var producer = producer();
-        producer.addUserRecord("stream-name", "partition-key", ByteBuffer.wrap("Hello".getBytes(StandardCharsets.UTF_8)));
+        producer.addUserRecord(streamName, partitionKey, ByteBuffer.wrap("Hello".getBytes(StandardCharsets.UTF_8)));
+        await().until(() -> service.getRecords(), records -> records.size() > 0);
     }
 }
