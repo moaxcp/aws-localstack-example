@@ -1,6 +1,5 @@
 package kinesis.localstack.example;
 
-import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -9,10 +8,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 import com.amazonaws.services.kinesis.producer.KinesisProducer;
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
-import org.junit.Rule;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,6 +80,8 @@ public class KinesisTest {
                 .setRecordMaxBufferedTime(100)
                 .setRecordTtl(30000)
                 .setRequestTimeout(5000)
+                .setCredentialsProvider(localstack.getDefaultCredentialsProvider())
+                .setMetricsCredentialsProvider(localstack.getDefaultCredentialsProvider())
                 .setRegion(localstack.getRegion())
                 .setCloudwatchEndpoint(localstack.getEndpointOverride(CLOUDWATCH).getHost())
                 .setCloudwatchPort(localstack.getEndpointOverride(CLOUDWATCH).getPort())
