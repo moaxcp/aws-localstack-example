@@ -105,7 +105,7 @@ public class KinesisTest {
     public static final String streamName = "stream-name";
     public static final String partitionKey = "partition-key";
 
-    DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:0.12.12");
+    DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:0.14.1");
 
     @Container
     public LocalStackContainer localstack = new LocalStackContainer(localstackImage)
