@@ -2,6 +2,9 @@ package kinesis.localstack.example;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -24,6 +27,13 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.kinesis.common.ConfigsBuilder;
 import software.amazon.kinesis.common.KinesisClientUtil;
 import software.amazon.kinesis.coordinator.Scheduler;
+import software.amazon.kinesis.lifecycle.events.InitializationInput;
+import software.amazon.kinesis.lifecycle.events.LeaseLostInput;
+import software.amazon.kinesis.lifecycle.events.ProcessRecordsInput;
+import software.amazon.kinesis.lifecycle.events.ShardEndedInput;
+import software.amazon.kinesis.lifecycle.events.ShutdownRequestedInput;
+import software.amazon.kinesis.processor.ShardRecordProcessor;
+import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
 
 import static org.awaitility.Awaitility.await;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.CLOUDWATCH;
@@ -32,8 +42,69 @@ import static org.testcontainers.containers.localstack.LocalStackContainer.Servi
 
 @Testcontainers
 public class KinesisTest {
+    static class TestProcessorFactory implements ShardRecordProcessorFactory {
+
+        private final TestKinesisRecordService service;
+
+        public TestProcessorFactory(TestKinesisRecordService service) {
+            this.service = service;
+        }
+
+        @Override
+        public ShardRecordProcessor shardRecordProcessor() {
+            return new TestRecordProcessor(service);
+        }
+    }
+
+    static class TestRecordProcessor implements ShardRecordProcessor {
+
+        public final TestKinesisRecordService service;
+
+        public TestRecordProcessor(TestKinesisRecordService service) {
+            this.service = service;
+        }
+
+        @Override
+        public void initialize(InitializationInput initializationInput) {
+
+        }
+
+        @Override
+        public void processRecords(ProcessRecordsInput processRecordsInput) {
+            service.addRecord(processRecordsInput);
+        }
+
+        @Override
+        public void leaseLost(LeaseLostInput leaseLostInput) {
+
+        }
+
+        @Override
+        public void shardEnded(ShardEndedInput shardEndedInput) {
+
+        }
+
+        @Override
+        public void shutdownRequested(ShutdownRequestedInput shutdownRequestedInput) {
+
+        }
+    }
+
+    static class TestKinesisRecordService {
+        private List<ProcessRecordsInput> records = Collections.synchronizedList(new ArrayList<>());
+
+        public void addRecord(ProcessRecordsInput processRecordsInput) {
+            records.add(processRecordsInput);
+        }
+
+        public List<ProcessRecordsInput> getRecords() {
+            return Collections.unmodifiableList(records);
+        }
+    }
+
     public static final String streamName = "stream-name";
     public static final String partitionKey = "partition-key";
+
     DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:0.12.12");
 
     @Container
