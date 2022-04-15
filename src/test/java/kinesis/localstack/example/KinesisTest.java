@@ -34,6 +34,7 @@ import software.amazon.kinesis.lifecycle.events.ShardEndedInput;
 import software.amazon.kinesis.lifecycle.events.ShutdownRequestedInput;
 import software.amazon.kinesis.processor.ShardRecordProcessor;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
+import software.amazon.kinesis.retrieval.polling.PollingConfig;
 
 import static org.awaitility.Awaitility.await;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.CLOUDWATCH;
@@ -105,11 +106,11 @@ public class KinesisTest {
     public static final String streamName = "stream-name";
     public static final String partitionKey = "partition-key";
 
-    DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:0.14.1");
+    DockerImageName localstackImage = DockerImageName.parse("localstack/localstack:latest");
 
     @Container
     public LocalStackContainer localstack = new LocalStackContainer(localstackImage)
-            .withServices(KINESIS)
+            .withServices(KINESIS, CLOUDWATCH)
             .withEnv("KINESIS_INITIALIZE_STREAMS", streamName + ":1");
 
     public Scheduler scheduler;
@@ -132,9 +133,12 @@ public class KinesisTest {
                 configsBuilder.leaseManagementConfig(),
                 configsBuilder.lifecycleConfig(),
                 configsBuilder.metricsConfig(),
-                configsBuilder.processorConfig(),
-                configsBuilder.retrievalConfig()
+                configsBuilder.processorConfig().callProcessRecordsEvenForEmptyRecordList(true),
+                configsBuilder.retrievalConfig().retrievalSpecificConfig(
+                new PollingConfig(streamName, configsBuilder.kinesisClient()))
         );
+
+        new Thread(scheduler).start();
 
         producer = producer();
     }
@@ -143,14 +147,12 @@ public class KinesisTest {
     public void teardown() throws ExecutionException, InterruptedException, TimeoutException {
         producer.destroy();
         Future<Boolean> gracefulShutdownFuture = scheduler.startGracefulShutdown();
-        gracefulShutdownFuture.get(20, TimeUnit.SECONDS);
+        gracefulShutdownFuture.get(60, TimeUnit.SECONDS);
     }
 
     public KinesisProducer producer() {
         var configuration = new KinesisProducerConfiguration()
-                .setRecordMaxBufferedTime(100)
-                .setRecordTtl(30000)
-                .setRequestTimeout(5000)
+                .setVerifyCertificate(false)
                 .setCredentialsProvider(localstack.getDefaultCredentialsProvider())
                 .setMetricsCredentialsProvider(localstack.getDefaultCredentialsProvider())
                 .setRegion(localstack.getRegion())
@@ -165,6 +167,6 @@ public class KinesisTest {
     @Test
     void test() {
         producer.addUserRecord(streamName, partitionKey, ByteBuffer.wrap("Hello".getBytes(StandardCharsets.UTF_8)));
-        await().until(() -> service.getRecords(), records -> records.size() > 0);
+        await().timeout(600, TimeUnit.SECONDS).until(() -> service.getRecords(), records -> records.size() > 0);
     }
 }
