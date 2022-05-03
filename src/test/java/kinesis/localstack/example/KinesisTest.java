@@ -36,6 +36,8 @@ import software.amazon.kinesis.processor.ShardRecordProcessor;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
 import software.amazon.kinesis.retrieval.polling.PollingConfig;
 
+import static java.util.stream.Collectors.toList;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.CLOUDWATCH;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.DYNAMODB;
@@ -133,7 +135,7 @@ public class KinesisTest {
                 configsBuilder.leaseManagementConfig(),
                 configsBuilder.lifecycleConfig(),
                 configsBuilder.metricsConfig(),
-                configsBuilder.processorConfig().callProcessRecordsEvenForEmptyRecordList(true),
+                configsBuilder.processorConfig().callProcessRecordsEvenForEmptyRecordList(false),
                 configsBuilder.retrievalConfig().retrievalSpecificConfig(
                 new PollingConfig(streamName, configsBuilder.kinesisClient()))
         );
@@ -166,7 +168,10 @@ public class KinesisTest {
 
     @Test
     void test() {
-        producer.addUserRecord(streamName, partitionKey, ByteBuffer.wrap("Hello".getBytes(StandardCharsets.UTF_8)));
-        await().timeout(600, TimeUnit.SECONDS).until(() -> service.getRecords(), records -> records.size() > 0);
+        ByteBuffer expected = ByteBuffer.wrap("Hello".getBytes(StandardCharsets.UTF_8));
+        producer.addUserRecord(streamName, partitionKey, expected);
+        producer.flushSync();
+        var result = await().timeout(600, TimeUnit.SECONDS).until(() -> service.getRecords().stream().flatMap(r -> r.records().stream()).collect(toList()), records -> records.size() > 0);
+        assertThat(result).anyMatch(r -> r.data().equals(expected));
     }
 }
