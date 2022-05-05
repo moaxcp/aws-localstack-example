@@ -25,8 +25,12 @@ import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.kinesis.common.ConfigsBuilder;
+import software.amazon.kinesis.common.InitialPositionInStream;
+import software.amazon.kinesis.common.InitialPositionInStreamExtended;
 import software.amazon.kinesis.common.KinesisClientUtil;
 import software.amazon.kinesis.coordinator.Scheduler;
+import software.amazon.kinesis.exceptions.InvalidStateException;
+import software.amazon.kinesis.exceptions.ShutdownException;
 import software.amazon.kinesis.lifecycle.events.InitializationInput;
 import software.amazon.kinesis.lifecycle.events.LeaseLostInput;
 import software.amazon.kinesis.lifecycle.events.ProcessRecordsInput;
@@ -34,6 +38,7 @@ import software.amazon.kinesis.lifecycle.events.ShardEndedInput;
 import software.amazon.kinesis.lifecycle.events.ShutdownRequestedInput;
 import software.amazon.kinesis.processor.ShardRecordProcessor;
 import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
+import software.amazon.kinesis.retrieval.KinesisClientRecord;
 import software.amazon.kinesis.retrieval.polling.PollingConfig;
 
 import static java.util.stream.Collectors.toList;
@@ -84,7 +89,13 @@ public class KinesisTest {
 
         @Override
         public void shardEnded(ShardEndedInput shardEndedInput) {
-
+            try {
+                shardEndedInput.checkpointer().checkpoint();
+            } catch (InvalidStateException e) {
+                e.printStackTrace();
+            } catch (ShutdownException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
@@ -136,7 +147,7 @@ public class KinesisTest {
                 configsBuilder.lifecycleConfig(),
                 configsBuilder.metricsConfig(),
                 configsBuilder.processorConfig().callProcessRecordsEvenForEmptyRecordList(false),
-                configsBuilder.retrievalConfig().retrievalSpecificConfig(
+                configsBuilder.retrievalConfig().initialPositionInStreamExtended(InitialPositionInStreamExtended.newInitialPosition(InitialPositionInStream.TRIM_HORIZON)).retrievalSpecificConfig(
                 new PollingConfig(streamName, configsBuilder.kinesisClient()))
         );
 
@@ -168,10 +179,15 @@ public class KinesisTest {
 
     @Test
     void test() {
-        ByteBuffer expected = ByteBuffer.wrap("Hello".getBytes(StandardCharsets.UTF_8));
-        producer.addUserRecord(streamName, partitionKey, expected);
-        producer.flushSync();
-        var result = await().timeout(600, TimeUnit.SECONDS).until(() -> service.getRecords().stream().flatMap(r -> r.records().stream()).collect(toList()), records -> records.size() > 0);
-        assertThat(result).anyMatch(r -> r.data().equals(expected));
+        String expected = "Hello";
+        producer.addUserRecord(streamName, partitionKey, ByteBuffer.wrap(expected.getBytes(StandardCharsets.UTF_8)));
+
+        var result = await().timeout(600, TimeUnit.SECONDS)
+                .until(() -> service.getRecords().stream()
+                .flatMap(r -> r.records().stream())
+                        .map(KinesisClientRecord::data)
+                        .map(r -> StandardCharsets.UTF_8.decode(r).toString())
+                .collect(toList()), records -> records.size() > 0);
+        assertThat(result).anyMatch(r -> r.equals(expected));
     }
 }
