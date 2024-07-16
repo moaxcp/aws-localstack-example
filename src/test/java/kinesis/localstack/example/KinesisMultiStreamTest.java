@@ -24,6 +24,8 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
+import software.amazon.awssdk.services.kinesis.model.CreateStreamRequest;
+import software.amazon.awssdk.services.kinesis.model.CreateStreamResponse;
 import software.amazon.kinesis.common.ConfigsBuilder;
 import software.amazon.kinesis.common.InitialPositionInStream;
 import software.amazon.kinesis.common.InitialPositionInStreamExtended;
@@ -146,7 +148,7 @@ public class KinesisMultiStreamTest {
 
     @Container
     public LocalStackContainer localstack = new LocalStackContainer(localstackImage)
-            .withServices(KINESIS, CLOUDWATCH)
+            .withServices(KINESIS, DYNAMODB, CLOUDWATCH)
             .withEnv("KINESIS_INITIALIZE_STREAMS", firstStreamName + ":1," + secondStreamName + ":1");
 
     public Scheduler scheduler;
@@ -154,10 +156,12 @@ public class KinesisMultiStreamTest {
     public KinesisProducer producer;
 
     @BeforeEach
-    void setup() {
+    void setup() throws ExecutionException, InterruptedException {
         KinesisAsyncClient kinesisClient = KinesisClientUtil.createKinesisAsyncClient(
                 KinesisAsyncClient.builder().endpointOverride(localstack.getEndpointOverride(KINESIS)).region(Region.of(localstack.getRegion()))
         );
+        kinesisClient.createStream(CreateStreamRequest.builder().streamName(firstStreamName).shardCount(1).build()).get();
+        kinesisClient.createStream(CreateStreamRequest.builder().streamName(secondStreamName).shardCount(1).build()).get();
         DynamoDbAsyncClient dynamoClient = DynamoDbAsyncClient.builder().region(Region.of(localstack.getRegion())).endpointOverride(localstack.getEndpointOverride(DYNAMODB)).build();
         CloudWatchAsyncClient cloudWatchClient = CloudWatchAsyncClient.builder().region(Region.of(localstack.getRegion())).endpointOverride(localstack.getEndpointOverride(CLOUDWATCH)).build();
 

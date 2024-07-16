@@ -24,6 +24,8 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
+import software.amazon.awssdk.services.kinesis.model.CreateStreamRequest;
+import software.amazon.awssdk.services.kinesis.model.CreateStreamResponse;
 import software.amazon.kinesis.common.ConfigsBuilder;
 import software.amazon.kinesis.common.InitialPositionInStream;
 import software.amazon.kinesis.common.InitialPositionInStreamExtended;
@@ -123,18 +125,18 @@ public class KinesisSingleStreamTest {
 
     @Container
     public LocalStackContainer localstack = new LocalStackContainer(localstackImage)
-            .withServices(KINESIS, CLOUDWATCH)
-            .withEnv("KINESIS_INITIALIZE_STREAMS", streamName + ":1");
+            .withServices(KINESIS, DYNAMODB, CLOUDWATCH);
 
     public Scheduler scheduler;
     public TestKinesisRecordService service = new TestKinesisRecordService();
     public KinesisProducer producer;
 
     @BeforeEach
-    void setup() {
+    void setup() throws ExecutionException, InterruptedException {
         KinesisAsyncClient kinesisClient = KinesisClientUtil.createKinesisAsyncClient(
                 KinesisAsyncClient.builder().endpointOverride(localstack.getEndpointOverride(KINESIS)).region(Region.of(localstack.getRegion()))
         );
+        kinesisClient.createStream(CreateStreamRequest.builder().streamName(streamName).shardCount(1).build()).get();
         DynamoDbAsyncClient dynamoClient = DynamoDbAsyncClient.builder().region(Region.of(localstack.getRegion())).endpointOverride(localstack.getEndpointOverride(DYNAMODB)).build();
         CloudWatchAsyncClient cloudWatchClient = CloudWatchAsyncClient.builder().region(Region.of(localstack.getRegion())).endpointOverride(localstack.getEndpointOverride(CLOUDWATCH)).build();
 

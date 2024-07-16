@@ -9,6 +9,7 @@ repositories {
 dependencies {
     testImplementation 'org.slf4j:slf4j-api:1.7.36'
     testImplementation 'org.slf4j:slf4j-simple:1.7.36'
+    implementation 'com.amazonaws:aws-java-sdk-s3:1.12.761'
     testImplementation 'com.amazonaws:amazon-kinesis-producer:0.14.10'
     testImplementation 'software.amazon.kinesis:amazon-kinesis-client:2.4.0'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.8.1'
